@@ -26,3 +26,30 @@ end
 ###################################
 # FIXME: Implement Lisa endpoints #
 ###################################
+
+get '/lisa' do
+  "The baritone sax is the best sax"
+end
+
+post '/lisa' do
+  request_body = JSON.parse(request.body.read)
+  gift = request_body['gift']
+
+  case gift
+  when 'book'
+    status 200
+    "I love it"
+  when 'saxaphone'
+    status 200
+    "I REALLY love it"
+  when 'video_game'
+    status 400
+    "I hate it"
+  when 'skateboard'
+    status 400
+    "I REALLY hate it"
+  else
+    status 400
+    "I don't know how I feel about that"
+  end
+end
