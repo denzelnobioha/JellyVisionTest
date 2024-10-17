@@ -1,17 +1,8 @@
+# provider "aws" {
+#   region = "us-east-1"
+# }
+
 provider "aws" {}
-
-# Create a DynamoDB table for state locking
-resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "terraform_locks"
-  billing_mode = "PAY_PER_REQUEST"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  hash_key = "LockID"
-}
 
 resource "aws_vpc" "simpsons_vpc" {
   cidr_block = "10.0.0.0/16"
@@ -23,16 +14,16 @@ resource "aws_subnet" "private_subnet" {
   availability_zone = "us-east-1a"
 }
 
-resource "aws_subnet" "public_subnet_2" {
-  vpc_id            = aws_vpc.simpsons_vpc.id
-  cidr_block        = "10.0.3.0/24"
-  availability_zone = "us-east-1b"  # Use a different AZ
-}
-
 resource "aws_subnet" "public_subnet" {
   vpc_id     = aws_vpc.simpsons_vpc.id
   cidr_block = "10.0.2.0/24"
   availability_zone = "us-east-1a"
+}
+
+resource "aws_subnet" "public_subnet1" {
+  vpc_id     = aws_vpc.simpsons_vpc.id
+  cidr_block = "10.0.3.0/24"
+  availability_zone = "us-east-1b"
 }
 
 resource "aws_security_group" "ecs_sg" {
@@ -113,19 +104,6 @@ resource "aws_ecs_task_definition" "simpsons_task" {
   DEFINITION
 }
 
-# resource "aws_ecs_service" "simpsons_service" {
-#   name            = "simpsons-service"
-#   cluster         = aws_ecs_cluster.simpsons_cluster.id
-#   task_definition = aws_ecs_task_definition.simpsons_task.arn
-#   desired_count   = 1
-#   launch_type     = "FARGATE"
-
-#   network_configuration {
-#     subnets         = [aws_subnet.private_subnet.id]
-#     security_groups = [aws_security_group.ecs_sg.id]
-#   }
-# }
-
 resource "aws_ecs_service" "simpsons_service" {
   name            = "simpsons-service"
   cluster         = aws_ecs_cluster.simpsons_cluster.id
@@ -136,18 +114,8 @@ resource "aws_ecs_service" "simpsons_service" {
   network_configuration {
     subnets         = [aws_subnet.private_subnet.id]
     security_groups = [aws_security_group.ecs_sg.id]
-
-    # Add this block to attach to the load balancer
-    assign_public_ip = true
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.simpsons_target_group.arn
-    container_name   = "simpsons-api"  # Replace with your container name
-    container_port   = 4567  # Replace with the port your app listens on
   }
 }
-
 
 ##### IGW #################################
 
@@ -196,65 +164,25 @@ resource "aws_route_table_association" "private_subnet_association" {
   route_table_id = aws_route_table.private_route_table.id
 }
 
-
-# Create the Application Load Balancer
-resource "aws_lb" "simpsons_lb" {
-  name               = "simpsons-lb"
+###### lb #######
+resource "aws_lb" "simpsons_alb" {
+  name               = "simpsons-alb"
   internal           = false
   load_balancer_type = "application"
+  subnets            = [aws_subnet.public_subnet.id, aws_subnet.public_subnet1.id]
   security_groups    = [aws_security_group.ecs_sg.id]
-  #subnets            = [aws_subnet.public_subnet.id] # You may want to use public subnets
-    subnets            = [
-    aws_subnet.public_subnet.id,
-    aws_subnet.public_subnet_2.id  # Include the new subnet
-  ]
-
-  enable_deletion_protection = false
-}
-
-# Create a target group for the ECS service
-resource "aws_lb_target_group" "simpsons_target_group" {
-  name     = "simpsons-target-group"
-  port     = 4567
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.simpsons_vpc.id
-  target_type = "ip"
-
-  health_check {
-    path                = "/"  # Adjust as necessary
-    interval            = 30
-    timeout             = 5
-    healthy_threshold  = 2
-    unhealthy_threshold = 2
-  }
-}
-
-# Create a listener for the Load Balancer
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.simpsons_lb.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.simpsons_target_group.arn
-  }
 }
 
 
-#### witthout lb
+###### route 53####
 
-
-resource "aws_ecs_service" "simpsons_service_without_lb" {
-  name            = "simpsons-service-no-lb"
-  cluster         = aws_ecs_cluster.simpsons_cluster.id
-  task_definition = aws_ecs_task_definition.simpsons_task.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets         = [aws_subnet.private_subnet.id]
-    security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true  # Set to false if you don't want a public IP
+resource "aws_route53_record" "simpsons_record" {
+  zone_id = "Z06333914SXT4M6VPDAO"
+  name    = "austin.jv-magic.com"
+  type    = "A"
+  alias {
+    name                   = aws_lb.simpsons_alb.dns_name
+    zone_id                = aws_lb.simpsons_alb.zone_id
+    evaluate_target_health = true
   }
 }
